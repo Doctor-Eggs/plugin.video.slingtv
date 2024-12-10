@@ -119,7 +119,7 @@ class EPG:
                     if 'thumbnail' in slot and slot['thumbnail']:
                         image = slot['thumbnail']['url']
                     elif 'program' in slot and slot['program']['franchise_image'] is not None:
-                        image = slot['program']['franchise_image']
+                        image = slot['program']['franchise_image']['url']
                     air_date = slot['orig_air_date'] if 'orig_air_date' in slot else ''
                     genres = ''
                     if 'genre' in slot['metadata']:
