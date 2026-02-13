@@ -72,7 +72,7 @@ MYTV = '%s/config/shared/pages/mytv.json' % (BASE_WEB)
 CONFIG = '%s/config/browser/sling/config.json' % (BASE_WEB)
 VERIFY = True
 PRINTABLE = set(string.printable)
-CONTENT_TYPE = 'Episodes'
+CONTENT_TYPE = 'files'
 
 
 def log(msg, level=xbmc.LOGDEBUG):
@@ -214,6 +214,9 @@ def addLink(name, handleID,  url, mode, info=None, art=None, total=0, contextMen
     else:
         if 'mediatype' in info: CONTENT_TYPE = '%ss' % info['mediatype']
         link.setInfo(type='Video', infoLabels=info)
+        if 'sorttitle' in info:
+            if hasattr(link, "setSortLabel"):
+                link.setSortLabel(str(info['sorttitle']))
     if art is None: link.setArt({'thumb': ICON, 'fanart': FANART})
     else: link.setArt(art)
     if contextMenu is not None: link.addContextMenuItems(contextMenu)
@@ -252,4 +255,3 @@ def restart_iptv():
     xbmc.executeJSONRPC(pvr_toggle_off)
     xbmc.Monitor().waitForAbort(5)
     xbmc.executeJSONRPC(pvr_toggle_on)
-

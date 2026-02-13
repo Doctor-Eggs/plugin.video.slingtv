@@ -1,4 +1,4 @@
-from resources.lib.globals import *
+﻿from resources.lib.globals import *
 from requests_oauthlib import OAuth1
 import uuid
 
@@ -363,8 +363,35 @@ class Auth(object):
         log('auth::getPlaylist() URL: %s' % playlist_url)
         license_key = ''
         nba_channel = False
-        r = requests.get(playlist_url, headers=HEADERS, verify=VERIFY)
-        log(r.text)
+        headers = dict(HEADERS)
+        try:
+            token = SETTINGS.getSetting('access_token_jwt')
+            if token:
+                headers['Authorization'] = f'Bearer {token}'
+            # Mirror browser player request headers to avoid 4xx on on-demand playback.
+            headers['Origin'] = 'https://watch.sling.com'
+            headers['Referer'] = 'https://watch.sling.com/'
+            headers['CLIENT-CONFIG'] = 'rn-client-config'
+            headers['Client-Version'] = '7.1.26'
+            headers['Player-Version'] = '9.1.0'
+            headers['Client-Analytics-ID'] = '1'
+            headers['Device-Model'] = 'Chrome'
+            headers['page_size'] = 'large'
+            headers['response-config'] = 'ar_browser_1_1'
+            headers['Sling-Interaction-ID'] = str(uuid.uuid4())
+            # Use configured timezone/zip/dma when available.
+            if USER_DMA:
+                headers['dma'] = USER_DMA
+            if USER_OFFSET:
+                headers['timezone'] = USER_OFFSET
+            if USER_ZIP:
+                headers['geo-zipcode'] = USER_ZIP
+            # Optional time-zone-id if available.
+            # if 'America/' in TIMEZONE:
+            #     headers['time-zone-id'] = TIMEZONE
+        except Exception:
+            pass
+        r = requests.get(playlist_url, headers=headers, verify=VERIFY)
         if r.ok:
             qmx_url = None
             video = r.json()
@@ -398,12 +425,23 @@ class Auth(object):
                         lic_url = qmx['encryption']['providers']['widevine']['proxy_url']
                         log('resolverURL, lic_url = ' + lic_url)
 
-                    if 'playback_info' in playlist_url:
-                        channel_id = playlist_url.split('/')[-4]
-                    else:
-                        channel_id = playlist_url.split('/')[-2]
-                        if 'channel=' in playlist_url:
-                            channel_id = playlist_url.split('?')[-1].split('=')[-1]                        
+                    # Prefer channel_guid from response payload when available.
+                    channel_id = ''
+                    try:
+                        channel_id = video.get('channel_guid', '')
+                        if not channel_id:
+                            channel_id = video.get('playback_info', {}).get('channel_guid', '')
+                        if not channel_id:
+                            channel_id = video.get('asset', {}).get('channel_guid', '')
+                    except Exception:
+                        channel_id = ''
+                    if not channel_id:
+                        if 'playback_info' in playlist_url:
+                            channel_id = playlist_url.split('/')[-4]
+                        else:
+                            channel_id = playlist_url.split('/')[-2]
+                            if 'channel=' in playlist_url:
+                                channel_id = playlist_url.split('?')[-1].split('=')[-1]                        
 
                     debug = dict(urlParse.parse_qsl(DEBUG_CODE))
                     if 'channel' in debug:
@@ -507,3 +545,4 @@ class Auth(object):
             notificationDialog(r.json()['message'])
 
         return mpd_url
+
