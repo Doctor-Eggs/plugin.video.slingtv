@@ -101,7 +101,19 @@ class EPG:
                 except:
                     pass
 
-                if not r.ok or 'schedule' not in r.json() or 'scheduleList' not in r.json()['schedule']: continue
+                #---------------------------------------------------
+                # Check if the response is valid
+                #---------------------------------------------------
+                if not r.ok:
+                    continue
+
+                data = r.json() or {}
+                schedule = data.get('schedule') or {}
+
+                if 'scheduleList' not in schedule:
+                    continue
+                #---------------------------------------------------
+
                 channel_id = channel[1]
                 stream_url = channel[4]
                 # try:
