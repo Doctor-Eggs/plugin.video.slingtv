@@ -1,6 +1,291 @@
-﻿from resources.lib.globals import *
+from resources.lib.globals import *
 from requests_oauthlib import OAuth1
 import uuid
+import http.server
+import socket
+import threading
+
+
+class _TokenStore(object):
+    def __init__(self):
+        self.token = ''
+        self.error = ''
+
+
+class _TokenHandler(http.server.BaseHTTPRequestHandler):
+    store = None
+    server_ref = None
+
+    def _send(self, code, body, content_type="text/html; charset=utf-8"):
+        body_bytes = body.encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body_bytes)))
+        self.end_headers()
+        self.wfile.write(body_bytes)
+
+    def do_GET(self):
+        page = """<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <title>Sling Login</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        line-height: 1.45;
+        background: #f5f7fb;
+        color: #101828;
+      }
+      .wrap {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 16px;
+      }
+      .card {
+        background: #ffffff;
+        border: 1px solid #d0d5dd;
+        border-radius: 14px;
+        padding: 16px;
+        box-shadow: 0 6px 18px rgba(16, 24, 40, 0.08);
+      }
+      h2 {
+        margin: 0 0 10px 0;
+        font-size: 1.25rem;
+      }
+      p {
+        margin: 0 0 10px 0;
+      }
+      ol {
+        margin: 0 0 12px 18px;
+        padding: 0;
+      }
+      li {
+        margin-bottom: 8px;
+      }
+      a {
+        color: #0b63f6;
+        word-break: break-word;
+      }
+      code {
+        display: inline-block;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        background: #eef2ff;
+        color: #1d2939;
+        padding: 2px 6px;
+        border-radius: 6px;
+      }
+      textarea {
+        width: 100%;
+        min-height: 160px;
+        border: 1px solid #98a2b3;
+        border-radius: 10px;
+        padding: 12px;
+        font-size: 16px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      }
+      button {
+        margin-top: 12px;
+        width: 100%;
+        border: 0;
+        border-radius: 10px;
+        background: #0b63f6;
+        color: #fff;
+        font-size: 16px;
+        font-weight: 600;
+        padding: 12px 14px;
+      }
+      button:active {
+        transform: scale(0.99);
+      }
+      .hint {
+        margin-top: 10px;
+        font-size: 0.92rem;
+        color: #344054;
+      }
+      @media (min-width: 640px) {
+        .wrap {
+          padding: 24px;
+        }
+        .card {
+          padding: 20px;
+        }
+        button {
+          width: auto;
+          min-width: 140px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <section class="card">
+        <h2>Sling Login Token</h2>
+        <p>Follow these steps to get your <code>transient_token</code>:</p>
+        <ol>
+          <li>On this device (phone/PC), open <a href="https://www.sling.com/sign-in" target="_blank" rel="noopener noreferrer">https://www.sling.com/sign-in</a> and sign in.</li>
+          <li>After login you will be redirected to a URL like:<br/>
+            <code>https://www.sling.com/sign-in/auth-callback?transient_token=...</code>
+          </li>
+          <li>Copy the full URL, or just the part after <code>transient_token=</code>, and paste it below.</li>
+        </ol>
+        <form method="POST">
+          <textarea name="token" placeholder="Paste full callback URL or transient_token here"></textarea>
+          <button type="submit">Submit</button>
+        </form>
+        <p class="hint">Tip: You can paste either the full callback URL or only the token value.</p>
+      </section>
+    </main>
+  </body>
+</html>"""
+        self._send(200, page)
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        body = self.rfile.read(length).decode("utf-8", errors="ignore")
+        token = ''
+        raw = ''
+        for part in body.split("&"):
+            if part.startswith("token="):
+                raw = part.split("=", 1)[-1]
+                raw = urlLib.unquote_plus(raw)
+                break
+        if raw:
+            if "transient_token=" in raw:
+                try:
+                    parsed = urlLib.urlparse(raw)
+                    qs = urlLib.parse_qs(parsed.query)
+                    token = (qs.get("transient_token", [""])[0] or "").strip()
+                except Exception:
+                    token = ''
+            else:
+                token = raw.strip()
+        if token:
+            self.store.token = token.strip()
+            page = """<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <title>Token Received</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #f5f7fb;
+        color: #101828;
+      }
+      .wrap {
+        max-width: 680px;
+        margin: 0 auto;
+        padding: 16px;
+      }
+      .card {
+        background: #ffffff;
+        border: 1px solid #d0d5dd;
+        border-radius: 14px;
+        padding: 18px;
+        box-shadow: 0 6px 18px rgba(16, 24, 40, 0.08);
+      }
+      h2 { margin: 0 0 8px 0; font-size: 1.2rem; }
+      p { margin: 0; line-height: 1.45; }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <section class="card">
+        <h2>Token received</h2>
+        <p>You can close this page and return to Kodi.</p>
+      </section>
+    </main>
+  </body>
+</html>"""
+            self._send(200, page)
+            threading.Thread(target=self.server_ref.shutdown, daemon=True).start()
+        else:
+            page = """<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <title>No Token Found</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #fff5f5;
+        color: #7a271a;
+      }
+      .wrap {
+        max-width: 680px;
+        margin: 0 auto;
+        padding: 16px;
+      }
+      .card {
+        background: #ffffff;
+        border: 1px solid #fda29b;
+        border-radius: 14px;
+        padding: 18px;
+      }
+      h2 { margin: 0 0 8px 0; font-size: 1.2rem; }
+      p { margin: 0; line-height: 1.45; }
+      a { color: #b42318; }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <section class="card">
+        <h2>No token found</h2>
+        <p>Paste the full Sling callback URL or the <code>transient_token</code> value and submit again.</p>
+      </section>
+    </main>
+  </body>
+</html>"""
+            self._send(400, page)
+
+    def log_message(self, format, *args):
+        # Silence HTTP server logs in Kodi.
+        return
+
+
+def _get_local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
+def _start_token_server(port_start=8088, tries=10):
+    ip = _get_local_ip()
+    store = _TokenStore()
+    for i in range(tries):
+        port = port_start + i
+        try:
+            handler = _TokenHandler
+            handler.store = store
+            httpd = http.server.HTTPServer(("", port), handler)
+            handler.server_ref = httpd
+            t = threading.Thread(target=httpd.serve_forever, daemon=True)
+            t.start()
+            return httpd, store, ip, port
+        except OSError:
+            continue
+    return None, store, ip, None
 
 
 class Auth(object):
@@ -179,6 +464,8 @@ class Auth(object):
         account_headers['User-Agent'] = ANDROID_USER_AGENT
         auth = OAuth1(self.OCK, self.OCS)
         r = requests.put(f"{endPoints['ums_url']}/v3/xauth/access_token.json", headers=account_headers, data=payload, auth=auth, verify=VERIFY)
+        
+        log(f"=======123123123{r.text}")
 
         if r.ok and 'oauth_token' in r.json():
             self.OTK = r.json()['oauth_token']
@@ -216,7 +503,6 @@ class Auth(object):
         }
         auth = OAuth1(self.OCK, self.OCS)
         r = requests.post(f"{endPoints['extauth_url']}/user/lookup", headers=HEADERS, data=json.dumps(payload), auth=auth, verify=VERIFY)
-        log(f"{r.text}")
         if r.ok:
             log('auth::logIn() =>\r%s' % json.dumps(r.json()['response_context'], indent=4))
             if 'response' in r.json():
@@ -243,6 +529,77 @@ class Auth(object):
         else:
             self.logOut()
             return False, 'Unable to validate account'
+
+    def browserLogin(self, endPoints):
+        global USER_EMAIL, SUBSCRIBER_ID
+        self.deviceID()
+        self.getAccess()
+
+        httpd, store, ip, port = _start_token_server()
+        if httpd is None or port is None:
+            return False, 'Failed to start local login server.'
+
+        url = f"http://{ip}:{port}"
+        xbmcgui.Dialog().ok(
+            ADDON_NAME,
+            "Open this URL on your phone or PC:\n{}\n\nPaste the full Sling auth-callback URL or just the transient_token.".format(url)
+        )
+
+        progress = xbmcgui.DialogProgress()
+        progress.create(ADDON_NAME, "Waiting for token submission...\n{}".format(url))
+        timeout_sec = 600
+        waited = 0
+        while waited < timeout_sec and not progress.iscanceled():
+            if store.token:
+                break
+            xbmc.Monitor().waitForAbort(0.5)
+            waited += 0.5
+            progress.update(int((waited / timeout_sec) * 100))
+        progress.close()
+
+        try:
+            httpd.shutdown()
+        except Exception:
+            pass
+
+        if progress.iscanceled():
+            return False, 'Login canceled.'
+        if not store.token:
+            return False, 'Timed out waiting for token.'
+
+        # Attempt to exchange transient token for OAuth access.
+        payload = f"token={requests.utils.quote(store.token)}&device_guid={requests.utils.quote(DEVICE_ID)}&client_application=browser"
+        account_headers = HEADERS
+        account_headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8'
+        account_headers['User-Agent'] = ANDROID_USER_AGENT
+        auth = OAuth1(self.OCK, self.OCS)
+        r = requests.post(f"{BASE_API}/v5/users/access_from_jwt", headers=account_headers, data=payload, auth=auth, verify=VERIFY)
+        if r.ok and 'access_token' in r.json():
+            access = r.json()['access_token']
+            self.OTK = access.get('token', '')
+            self.OTS = access.get('secret', '')
+            self.OTL = 'NO-LONGER-IN-USE'
+            self.setAccess()
+            # Populate user email and subscriber id for loggedIn() checks
+            try:
+                auth = OAuth1(self.OCK, self.OCS, self.OTK, self.OTS)
+                user_headers = HEADERS
+                user_headers.pop('Content-Type', None)
+                r_user = requests.get(USER_INFO_URL, headers=user_headers, auth=auth, verify=VERIFY)
+                if r_user.ok:
+                    data = r_user.json()
+                    email = data.get('email', '')
+                    if email:
+                        USER_EMAIL = email
+                        SETTINGS.setSetting('User_Email', email)
+                    guid = data.get('guid', '') or data.get('user_guid', '')
+                    if guid:
+                        SUBSCRIBER_ID = guid
+                        SETTINGS.setSetting('subscriber_id', guid)
+            except Exception:
+                pass
+            return True, 'Logged in via browser.'
+        return False, f'Failed to exchange token ({r.status_code}).'
 
     def prospectLogin(self, endPoints):
         global SUBSCRIBER_ID, USER_EMAIL
@@ -297,7 +654,11 @@ class Auth(object):
             # firstrun wizard
             answer = yesNoCustomDialog(LANGUAGE(30006), custom="Stream Free", no=LANGUAGE(30004), yes=LANGUAGE(30005))
             if answer == 1:
-                result, msg = self.paidLogin(endPoints)
+                use_browser = yesNoDialog("Use browser login on phone/PC?", header=ADDON_NAME, yes="Browser Login", no="Type Email/Password")
+                if use_browser:
+                    result, msg = self.browserLogin(endPoints)
+                else:
+                    result, msg = self.paidLogin(endPoints)
             elif answer == 2:
                 #Free Stream
                 result, msg = self.prospectLogin(endPoints)
@@ -545,4 +906,3 @@ class Auth(object):
             notificationDialog(r.json()['message'])
 
         return mpd_url
-
