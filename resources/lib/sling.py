@@ -62,6 +62,8 @@ class Sling(object):
         elif self.mode == "dvr_detail":
             if self.url is not None:
                 self.dvr_detail(self.url)
+        elif self.mode == "dvr_delete":
+            self.dvr_delete()
         elif self.mode == "play":
             self.play()
         elif self.mode == "settings":
@@ -90,6 +92,55 @@ class Sling(object):
         except: pass
 
         log(f'\rName: {self.name} | Mode: {self.mode}\rURL: {self.sysARG[0]}{self.sysARG[2]}\rParams:\r{self.params}')
+
+    def _build_dvr_headers(self):
+        return {
+            "Authorization": f"Bearer {SETTINGS.getSetting('access_token_jwt')}",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
+            "Sling-Interaction-ID": str(uuid.uuid4()),
+            "dma": USER_DMA,
+            "timezone": USER_OFFSET,
+            "geo-zipcode": USER_ZIP,
+            "features": "use_ui_4=true,inplace_reno_invalidation=true,gzip_response=true,enable_extended_expiry=true,enable_home_channels=true,enable_iap=true,enable_trash_franchise_iview=false,browse-by-service-ribbon=true,subpack-hub-view=true,entitled_streaming_hub=false,add-premium-channels=false,enable_home_sports_scores=true,enable-basepack-ribbon=true,is_rewards_enabled=false",
+            "Accept": "*/*",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            "CLIENT-CONFIG": "rn-client-config",
+            "Client-Version": "6.2.4",
+            "Player-Version": "8.10.1",
+            "Client-Analytics-ID": "",
+            "Device-Model": "Chrome",
+            "page_size": "large",
+            "response-config": "ar_browser_1_1",
+            "Content-Type": "application/json; charset=UTF-8",
+            "Origin": "https://watch.sling.com",
+            "Connection": "keep-alive",
+            "Referer": "https://watch.sling.com/",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "cross-site",
+            "TE": "trailers"
+        }
+
+    def _build_dvr_delete_menu(self, title, action_obj):
+        if not isinstance(action_obj, dict):
+            return None
+        delete_url = action_obj.get("url", "")
+        delete_payload = action_obj.get("payload")
+        if not delete_url or delete_payload is None:
+            return None
+        try:
+            payload_str = json.dumps(delete_payload, separators=(",", ":"))
+        except Exception:
+            return None
+        label = action_obj.get("label", "Delete")
+        plugin_url = (
+            f"plugin://plugin.video.slingtv/?mode=dvr_delete"
+            f"&action_url={urlLib.quote_plus(delete_url)}"
+            f"&action_payload={urlLib.quote_plus(payload_str)}"
+            f"&name={urlLib.quote_plus(title or '')}"
+        )
+        return (label.title(), f"RunPlugin({plugin_url})")
 
     def buildMenu(self):
         log('Building Menu')        
@@ -212,7 +263,7 @@ class Sling(object):
                     except:
                         pass
 
-    def add_detail_tile(self, tile, detail_data, detail_mode, season_hint=None):
+    def add_detail_tile(self, tile, detail_data, detail_mode, season_hint=None, is_dvr=False):
         name = tile.get("title")
         if not name:
             return 0
@@ -277,14 +328,24 @@ class Sling(object):
                 info["premiered"] = datetime.datetime.utcfromtimestamp(int(start_time)).strftime("%Y-%m-%d")
             except Exception:
                 pass
+        context_menu = None
+        if is_dvr:
+            delete_action = (
+                tile.get("focus_actions", {}).get("DELETE_RECORDING")
+                or tile.get("actions", {}).get("DELETE_RECORDINGS")
+            )
+            delete_item = self._build_dvr_delete_menu(name, delete_action)
+            if delete_item:
+                context_menu = [delete_item]
 
         if play_url:
-            addLink(name, self.handleID, play_url, "play", info=info, art={"thumb": icon, "fanart": icon})
+            addLink(name, self.handleID, play_url, "play", info=info, art={"thumb": icon, "fanart": icon},
+                    contextMenu=context_menu)
             return 1
         if detail_url:
-            addDir(name, self.handleID, detail_url, detail_mode, art={"thumb": icon, "fanart": icon})
+            addDir(name, self.handleID, detail_url, detail_mode, art={"thumb": icon, "fanart": icon}, menu=context_menu)
             return 1
-        addOption(name, self.handleID, "", mode="info", art={"thumb": icon, "fanart": icon})
+        addOption(name, self.handleID, "", mode="info", art={"thumb": icon, "fanart": icon}, menu=context_menu)
         return 1
 
     def onDemandDetail(self, url):
@@ -409,33 +470,7 @@ class Sling(object):
                 addLink(name, self.handleID, play_url, "play", info=info, art={"thumb": icon, "fanart": icon})
 
     def dvr(self):
-        dvr_headers = {            
-            "Authorization": f"Bearer {SETTINGS.getSetting('access_token_jwt')}",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
-            "Sling-Interaction-ID": str(uuid.uuid4()),
-            "dma": USER_DMA,
-            "timezone": USER_OFFSET,
-            "geo-zipcode": USER_ZIP,
-            "features": "use_ui_4=true,inplace_reno_invalidation=true,gzip_response=true,enable_extended_expiry=true,enable_home_channels=true,enable_iap=true,enable_trash_franchise_iview=false,browse-by-service-ribbon=true,subpack-hub-view=true,entitled_streaming_hub=false,add-premium-channels=false,enable_home_sports_scores=true,enable-basepack-ribbon=true,is_rewards_enabled=false",        
-            "Accept": "*/*",
-            "Accept-Language": "en-US,en;q=0.5",
-            "Accept-Encoding": "gzip, deflate, br, zstd",
-            "CLIENT-CONFIG": "rn-client-config",
-            "Client-Version": "6.2.4",
-            "Player-Version": "8.10.1",
-            "Client-Analytics-ID": "",            
-            "Device-Model": "Chrome",                        
-            "page_size": "large",            
-            "response-config": "ar_browser_1_1",            
-            "Content-Type": "application/json; charset=UTF-8",
-            "Origin": "https://watch.sling.com",
-            "Connection": "keep-alive",
-            "Referer": "https://watch.sling.com/",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "cross-site",
-            "TE": "trailers"
-        }
+        dvr_headers = self._build_dvr_headers()
 
         url = "https://p-cmwnext.movetv.com/pres/dvr_recordings"
 
@@ -458,42 +493,21 @@ class Sling(object):
                             name = tile["title"]
                             icon = tile.get("image", {}).get("url", "")
                             detail_url = tile.get("actions", {}).get("DETAIL_VIEW", {}).get("url", "")
+                            delete_action = tile.get("actions", {}).get("DELETE_RECORDINGS")
+                            menu = None
+                            delete_item = self._build_dvr_delete_menu(name, delete_action)
+                            if delete_item:
+                                menu = [delete_item]
                             if detail_url:
-                                addDir(name, self.handleID, detail_url, "dvr_detail", art={"thumb": icon, "fanart": icon})
+                                addDir(name, self.handleID, detail_url, "dvr_detail", art={"thumb": icon, "fanart": icon}, menu=menu)
                             else:
-                                addOption(name, self.handleID, "", mode="info", art={"thumb": icon, "fanart": icon})
+                                addOption(name, self.handleID, "", mode="info", art={"thumb": icon, "fanart": icon}, menu=menu)
                         except:
                             pass
 
     def dvr_detail(self, url):
         log(f"dvr_detail entry url => {url}", xbmc.LOGERROR)
-        dvr_headers = {            
-            "Authorization": f"Bearer {SETTINGS.getSetting('access_token_jwt')}",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
-            "Sling-Interaction-ID": str(uuid.uuid4()),
-            "dma": USER_DMA,
-            "timezone": USER_OFFSET,
-            "geo-zipcode": USER_ZIP,
-            "features": "use_ui_4=true,inplace_reno_invalidation=true,gzip_response=true,enable_extended_expiry=true,enable_home_channels=true,enable_iap=true,enable_trash_franchise_iview=false,browse-by-service-ribbon=true,subpack-hub-view=true,entitled_streaming_hub=false,add-premium-channels=false,enable_home_sports_scores=true,enable-basepack-ribbon=true,is_rewards_enabled=false",        
-            "Accept": "*/*",
-            "Accept-Language": "en-US,en;q=0.5",
-            "Accept-Encoding": "gzip, deflate, br, zstd",
-            "CLIENT-CONFIG": "rn-client-config",
-            "Client-Version": "6.2.4",
-            "Player-Version": "8.10.1",
-            "Client-Analytics-ID": "",            
-            "Device-Model": "Chrome",                        
-            "page_size": "large",            
-            "response-config": "ar_browser_1_1",            
-            "Content-Type": "application/json; charset=UTF-8",
-            "Origin": "https://watch.sling.com",
-            "Connection": "keep-alive",
-            "Referer": "https://watch.sling.com/",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "cross-site",
-            "TE": "trailers"
-        }
+        dvr_headers = self._build_dvr_headers()
 
         r = requests.get(url, headers=dvr_headers)
         log(f"dvr_detail http status => {r.status_code}", xbmc.LOGERROR)
@@ -519,7 +533,7 @@ class Sling(object):
             pass
 
         def add_tile(tile, season_hint=None):
-            return self.add_detail_tile(tile, data, "dvr_detail", season_hint)
+            return self.add_detail_tile(tile, data, "dvr_detail", season_hint, is_dvr=True)
 
         def fetch_json(fetch_url):
             resp = requests.get(fetch_url, headers=dvr_headers)
@@ -608,6 +622,36 @@ class Sling(object):
                     addLink(name, self.handleID, play_url, "play", info=info, art={"thumb": icon, "fanart": icon})
                 else:
                     addOption(name, self.handleID, "", mode="info", art={"thumb": icon, "fanart": icon})
+
+    def dvr_delete(self):
+        action_url = urlLib.unquote_plus(self.params.get("action_url", ""))
+        payload_raw = urlLib.unquote_plus(self.params.get("action_payload", ""))
+        title = self.name or "recording"
+
+        if not action_url or not payload_raw:
+            notificationDialog("Missing DVR delete action data.")
+            return
+
+        if not yesNoDialog(f"Delete {title}?", header=ADDON_NAME, yes="Delete", no="Cancel"):
+            return
+
+        try:
+            payload = json.loads(payload_raw)
+        except Exception as e:
+            log("dvr_delete payload decode failed: " + str(e), xbmc.LOGERROR)
+            notificationDialog("Invalid delete payload.")
+            return
+
+        headers = self._build_dvr_headers()
+        r = requests.post(action_url, headers=headers, json=payload)
+        log(f"dvr_delete http status => {r.status_code}", xbmc.LOGERROR)
+        if not r.ok:
+            log(f"dvr_delete failed => {r.text}", xbmc.LOGERROR)
+            notificationDialog("Delete failed.")
+            return
+
+        notificationDialog("Recording deleted.")
+        xbmc.executebuiltin("Container.Refresh")
 
     def play(self):
         url = self.url
